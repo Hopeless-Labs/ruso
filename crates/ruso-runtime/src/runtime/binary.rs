@@ -285,7 +285,9 @@ pub fn hex_to_bytes(input: &str) -> Result<Vec<u8>, BytecodeError> {
     }
     let bytes = compact.as_bytes();
     let mut out = Vec::with_capacity(bytes.len() / 2);
-    for chunk in bytes.chunks_exact(2) {
+    // The length was checked to be even above, so `as_chunks` leaves no
+    // remainder and `.0` covers every byte.
+    for chunk in bytes.as_chunks::<2>().0 {
         // SAFETY: validated above as ascii hex.
         let pair = std::str::from_utf8(chunk).expect("ascii hex");
         let byte = u8::from_str_radix(pair, 16)
