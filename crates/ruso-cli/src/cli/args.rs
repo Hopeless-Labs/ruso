@@ -1,0 +1,666 @@
+//! Clap argument definitions.
+
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use clap::{Parser, Subcommand, ValueEnum};
+
+use ruso_runtime::ExecutorConfig;
+use ruso_script::{CompileError, compile_program, parse};
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "ruso",
+    version,
+    about = "Run Ruso vulnerability scan scripts + talk to the registry",
+    long_about = "Local: scan, validate, compile, exec.\n\
+                  Registry: login, logout, whoami, publish, install, search, \
+                  info, yank, unyank, edit, pat.\n\
+                  Use RUST_LOG to override log levels (e.g. RUST_LOG=ruso=debug)."
+)]
+pub struct Cli {
+    /// Less logging (-q once: warn, twice: error)
+    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
+    pub quiet: u8,
+
+    /// More logging (-v: debug, -vv: trace)
+    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Command {
+    /// Parse, compile, and run a `.rsl` script against targets
+    Scan(ScanArgs),
+
+    /// Validate `.rsl` syntax (no network I/O)
+    Validate(ValidateArgs),
+
+    /// Compile `.rsl` to hex bytecode (writes `<name>.rbc` next to each script)
+    Compile(CompileArgs),
+
+    /// Run compiled `.rbc` against targets
+    Exec(ExecArgs),
+
+    /// Save a registry PAT or session token for later use
+    Login(LoginArgs),
+
+    /// Delete the stored registry credential for the current registry
+    Logout(RegistryOnlyArgs),
+
+    /// Print the user the stored credential belongs to
+    Whoami(RegistryOnlyArgs),
+
+    /// Upload a `.rsl` script to the registry
+    Publish(PublishArgs),
+
+    /// Download a `<namespace>/<name>[@<range>]` script into the local cache
+    Install(InstallArgs),
+
+    /// Search published scripts on the registry
+    Search(SearchArgs),
+
+    /// Show registry metadata for a script (versions, install, tags)
+    Info(InfoArgs),
+
+    /// Yank a published version (idempotent)
+    Yank(YankArgs),
+
+    /// Reverse a previously-yanked version (idempotent)
+    Unyank(UnyankArgs),
+
+    /// Edit description / visibility of a script you own
+    Edit(EditArgs),
+
+    /// Manage personal access tokens (list / create / revoke)
+    Pat(PatArgs),
+
+    /// Operator-only registry actions (requires an admin account)
+    Admin(AdminArgs),
+}
+
+#[derive(Debug, Parser)]
+pub struct AdminArgs {
+    #[command(subcommand)]
+    pub action: AdminCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AdminCommand {
+    /// Hard-delete a published version or an entire script. Irreversible —
+    /// the data is removed, not yanked. Frees the version/slug for re-publish.
+    Delete(AdminDeleteArgs),
+}
+
+#[derive(Debug, Parser)]
+pub struct AdminDeleteArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// `<namespace>/<name>` to delete the whole script, or
+    /// `<namespace>/<name>@<version>` to delete one exact version.
+    #[arg(value_name = "REF[@VERSION]")]
+    pub r#ref: String,
+    /// Required acknowledgement — this permanently deletes registry data.
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Debug, Parser)]
+pub struct InfoArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// `<namespace>/<name>` or `<namespace>/<name>@<semver-range>`.
+    #[arg(value_name = "REF")]
+    pub r#ref: String,
+    /// Emit JSON to stdout instead of the human view.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Parser)]
+pub struct YankArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// `<namespace>/<name>@<version>` — exact SemVer required (no range).
+    #[arg(value_name = "REF@VERSION")]
+    pub r#ref: String,
+    /// Operator-visible explanation surfaced in version metadata
+    /// (`yank_reason`). Optional.
+    #[arg(long, value_name = "TEXT")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Parser)]
+pub struct UnyankArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// `<namespace>/<name>@<version>` — exact SemVer required.
+    #[arg(value_name = "REF@VERSION")]
+    pub r#ref: String,
+}
+
+#[derive(Debug, Parser)]
+pub struct EditArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// `<namespace>/<name>` — no version part.
+    #[arg(value_name = "REF")]
+    pub r#ref: String,
+    /// New description. Pass an empty string to clear.
+    #[arg(long, value_name = "TEXT")]
+    pub description: Option<String>,
+    /// New visibility — `public` or `private`.
+    #[arg(long, value_enum)]
+    pub visibility: Option<Visibility>,
+}
+
+#[derive(Debug, Parser)]
+pub struct PatArgs {
+    #[command(subcommand)]
+    pub action: PatCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PatCommand {
+    /// List your PATs (active + revoked).
+    List(PatListArgs),
+    /// Mint a new PAT. The plaintext is printed once — store it now.
+    Create(PatCreateArgs),
+    /// Revoke a PAT by id.
+    Revoke(PatRevokeArgs),
+}
+
+#[derive(Debug, Parser)]
+pub struct PatListArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// Hide already-revoked tokens (default shows them with a marker).
+    #[arg(long)]
+    pub active_only: bool,
+    /// Emit JSON to stdout instead of the table view.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Parser)]
+pub struct PatCreateArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// Human label so you remember what the token is for (e.g. `laptop`,
+    /// `ci`). Stored verbatim.
+    #[arg(value_name = "NAME")]
+    pub name: String,
+    /// Scope(s) to grant. Repeat for multiple (e.g. `--scope read
+    /// --scope publish`). Defaults to `read` if not specified. Allowed
+    /// values: `read`, `publish`, `yank`.
+    #[arg(long, value_name = "SCOPE")]
+    pub scope: Vec<String>,
+    /// Optional expiry as an RFC 3339 timestamp (`2026-12-31T00:00:00Z`).
+    /// Omit for a never-expiring token (still revocable).
+    #[arg(long, value_name = "RFC3339")]
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Parser)]
+pub struct PatRevokeArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// PAT id (UUID). Get it from `ruso pat list`.
+    #[arg(value_name = "ID")]
+    pub id: String,
+}
+
+#[derive(Debug, Parser)]
+pub struct ScriptArgs {
+    /// Path to a `.rsl` file, a directory of `.rsl` files, or a registry
+    /// reference like `<namespace>/<name>[@<semver-range>]`. Registry
+    /// references resolve via the local install cache and the registry
+    /// configured by `--registry` / `$RUSO_REGISTRY_URL`.
+    #[arg(long, value_name = "PATH|REF")]
+    pub script: String,
+}
+
+/// Common `--registry` flag shared by every command that talks to a
+/// backend. Inlined via `#[command(flatten)]` rather than `global` so it
+/// only appears on relevant subcommands.
+#[derive(Debug, Parser)]
+pub struct RegistryArgs {
+    /// Registry base URL. Overrides `$RUSO_REGISTRY_URL` and the built-in
+    /// default.
+    #[arg(long, value_name = "URL")]
+    pub registry: Option<String>,
+}
+
+#[derive(Debug, Parser)]
+pub struct RegistryOnlyArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+}
+
+#[derive(Debug, Parser)]
+pub struct LoginArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// PAT (`ruso_pat_...`) or session token (`ruso_sess_...`). Omit to
+    /// read the token from stdin (single line).
+    #[arg(long, value_name = "TOKEN")]
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum Visibility {
+    Public,
+    Private,
+}
+
+#[derive(Debug, Parser)]
+pub struct PublishArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// Path to a `.rsl` source file.
+    #[arg(value_name = "PATH")]
+    pub path: PathBuf,
+    /// Visibility for the first publish of this script. Subsequent
+    /// publishes inherit the existing visibility — change with PATCH
+    /// (not yet exposed in the CLI).
+    #[arg(long, value_enum)]
+    pub visibility: Option<Visibility>,
+    // No --namespace: the registry has no organizations, so a script is
+    // always published under the caller's own username. Re-add this when
+    // orgs land with real shared-namespace semantics.
+}
+
+#[derive(Debug, Parser)]
+pub struct InstallArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// One or more `<namespace>/<name>[@<range>]` references.
+    #[arg(value_name = "REF", required = true, num_args = 1..)]
+    pub refs: Vec<String>,
+    /// Re-download even if a matching version is already cached.
+    #[arg(long)]
+    pub force: bool,
+    /// Install every non-yanked version (within the supplied range, if any).
+    /// Useful for mirroring a script's full history to a workstation that
+    /// may need to scan against several pinned versions later.
+    #[arg(long)]
+    pub all_versions: bool,
+}
+
+#[derive(Debug, Parser)]
+pub struct SearchArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// Free-text query (matches name + description + tags).
+    #[arg(value_name = "QUERY")]
+    pub query: Option<String>,
+    /// Filter by tag. Repeat for AND semantics (`--tag auth --tag rce`).
+    #[arg(long, value_name = "TAG")]
+    pub tag: Vec<String>,
+    #[arg(long, value_name = "SEVERITY")]
+    pub severity: Option<String>,
+    #[arg(long, value_name = "CVE")]
+    pub cve: Option<String>,
+    #[arg(long, value_name = "NAMESPACE")]
+    pub namespace: Option<String>,
+    /// Filter by curated family (e.g. `web`, `network`, `database`).
+    #[arg(long, value_name = "FAMILY")]
+    pub family: Option<String>,
+    #[arg(long, default_value_t = 1, value_name = "N")]
+    pub page: u32,
+    #[arg(long, default_value_t = 20, value_name = "N")]
+    pub per_page: u32,
+    /// Emit results as JSON to stdout instead of the table view.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Parser)]
+pub struct ScanArgs {
+    /// Path to a `.rsl` file, a directory of `.rsl` files, or a registry
+    /// reference like `<namespace>/<name>[@<semver-range>]`. Mutually
+    /// exclusive with `--family`; exactly one is required.
+    #[arg(long, value_name = "PATH|REF")]
+    pub script: Option<String>,
+
+    /// Scan every published script in a registry family (e.g. `web`,
+    /// `network`, `database`). Resolves the family from the registry,
+    /// installs each script into the local cache, and runs them all.
+    /// Mutually exclusive with `--script`.
+    #[arg(long, value_name = "FAMILY")]
+    pub family: Option<String>,
+
+    /// Target URL (`https://…`) or path to a file with one URL per line
+    #[arg(long, value_name = "URL|FILE")]
+    pub target: String,
+
+    /// Default connect timeout for HTTP and socket probes (per-probe `timeout`
+    /// in scripts overrides this for HTTP).
+    #[arg(long, default_value = "30s", value_name = "DURATION")]
+    pub timeout: String,
+
+    /// Per-read I/O timeout for TCP/UDP/DNS socket probes.
+    #[arg(long, default_value = "10s", value_name = "DURATION")]
+    pub read_timeout: String,
+
+    /// Maximum HTTP response body size in bytes. Larger responses are
+    /// truncated; matchers operate on the truncated body.
+    #[arg(long, default_value_t = 10 * 1024 * 1024, value_name = "BYTES")]
+    pub max_response_bytes: usize,
+
+    /// Do not follow HTTP redirects
+    #[arg(long)]
+    pub no_follow_redirects: bool,
+
+    /// Disable TLS certificate verification (HTTPS and TCP `tls` probes).
+    /// Default is to verify — pass `--insecure` only for environments where
+    /// you accept MITM/finding-injection risk (e.g. self-signed lab certs).
+    #[arg(long)]
+    pub insecure: bool,
+
+    /// Scheme to assume for a bare-host `--target` (e.g. `example.com`) when the
+    /// connectivity probe is disabled or neither https nor http responds.
+    /// Default `https` (TLS-first); the probe still overrides this when it can
+    /// reach the host. Does not affect targets that already carry a scheme.
+    #[arg(long, value_enum, default_value_t = DefaultScheme::Https, value_name = "SCHEME")]
+    pub default_scheme: DefaultScheme,
+
+    /// Skip the https-first connectivity probe for bare-host targets and apply
+    /// `--default-scheme` directly. Use for deterministic/offline runs.
+    #[arg(long)]
+    pub no_scheme_probe: bool,
+
+    /// HTTP proxy URL (e.g. `http://127.0.0.1:8080`)
+    #[arg(long, value_name = "URL")]
+    pub proxy: Option<String>,
+
+    /// Maximum number of (target × script) combinations to run in parallel.
+    /// Increase for faster bulk scans; decrease to be gentler on targets.
+    #[arg(short = 'c', long, default_value_t = 16, value_name = "N")]
+    pub concurrency: usize,
+
+    /// Maximum concurrent in-flight scans against a single host. `0` disables
+    /// (only the global `-c` bound applies). Use this to keep a high `-c`
+    /// from piling many connections onto one sensitive target while still
+    /// allowing wide parallelism across many distinct hosts.
+    #[arg(long, default_value_t = 0, value_name = "N")]
+    pub max_per_host: usize,
+
+    /// Cap on how often a new script run may start, in scripts per second.
+    /// `0` disables the cap. This throttles *script-launch* rate at the
+    /// orchestrator — an individual script can still send many probes once
+    /// running, so this is a coarse safety cap, not a per-request limit.
+    #[arg(long, default_value_t = 0, value_name = "RPS")]
+    pub rps: u32,
+
+    /// Wall-clock budget per script run. Hostile or buggy bytecode (deep
+    /// loops, long `sleep`s) cannot run beyond this. Default `5m`.
+    #[arg(long, default_value = "5m", value_name = "DURATION")]
+    pub script_timeout: String,
+
+    /// Auto-retry an HTTP probe that fails with a transient transport error
+    /// (connection reset, connect/read timeout) up to N times. `0` disables. A
+    /// probe with its own `retry` directive is exempt — the script controls
+    /// retries there. Default `2`.
+    #[arg(long, default_value_t = 2, value_name = "N")]
+    pub retries: u32,
+
+    /// Write a report to this file; the format is chosen by the extension
+    /// (`.json` or `.csv`). Findings always also print to the terminal.
+    #[arg(long, value_name = "FILE.json|FILE.csv")]
+    pub report: Option<PathBuf>,
+
+    /// Registry to resolve `<namespace>/<name>[@<range>]` references against.
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+}
+
+#[derive(Debug, Parser)]
+pub struct ValidateArgs {
+    #[command(flatten)]
+    pub script: ScriptArgs,
+}
+
+#[derive(Debug, Parser)]
+pub struct CompileArgs {
+    #[command(flatten)]
+    pub script: ScriptArgs,
+}
+
+#[derive(Debug, Parser)]
+pub struct ExecArgs {
+    /// Path to a `.rbc` file, a directory of `.rbc` files, or a registry
+    /// reference like `<namespace>/<name>[@<semver-range>]`.
+    #[arg(long, value_name = "PATH|REF")]
+    pub bytecode: String,
+
+    /// Target URL (`https://…`) or path to a file with one URL per line
+    #[arg(long, value_name = "URL|FILE")]
+    pub target: String,
+
+    /// Default connect timeout for HTTP and socket probes.
+    #[arg(long, default_value = "30s", value_name = "DURATION")]
+    pub timeout: String,
+
+    /// Per-read I/O timeout for TCP/UDP/DNS socket probes.
+    #[arg(long, default_value = "10s", value_name = "DURATION")]
+    pub read_timeout: String,
+
+    /// Maximum HTTP response body size in bytes.
+    #[arg(long, default_value_t = 10 * 1024 * 1024, value_name = "BYTES")]
+    pub max_response_bytes: usize,
+
+    #[arg(long)]
+    pub no_follow_redirects: bool,
+
+    /// Disable TLS certificate verification. See `scan --insecure`.
+    #[arg(long)]
+    pub insecure: bool,
+
+    #[arg(long, value_name = "URL")]
+    pub proxy: Option<String>,
+
+    /// Maximum number of (target × bytecode) combinations to run in parallel.
+    #[arg(short = 'c', long, default_value_t = 16, value_name = "N")]
+    pub concurrency: usize,
+
+    /// Maximum concurrent in-flight scans against a single host. See
+    /// `scan --max-per-host`. `0` disables (default).
+    #[arg(long, default_value_t = 0, value_name = "N")]
+    pub max_per_host: usize,
+
+    /// Cap on script-launch rate in scripts per second. See `scan --rps`.
+    /// `0` disables (default).
+    #[arg(long, default_value_t = 0, value_name = "RPS")]
+    pub rps: u32,
+
+    /// Wall-clock budget per script run. Default `5m`.
+    #[arg(long, default_value = "5m", value_name = "DURATION")]
+    pub script_timeout: String,
+
+    /// Auto-retry an HTTP probe that fails with a transient transport error
+    /// (connection reset, connect/read timeout) up to N times. `0` disables. A
+    /// probe with its own `retry` directive is exempt. Default `2`.
+    #[arg(long, default_value_t = 2, value_name = "N")]
+    pub retries: u32,
+
+    /// Write a report to this file; the format is chosen by the extension
+    /// (`.json` or `.csv`). Findings always also print to the terminal.
+    #[arg(long, value_name = "FILE.json|FILE.csv")]
+    pub report: Option<PathBuf>,
+
+    /// Registry to resolve `<namespace>/<name>[@<range>]` references against.
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+}
+
+/// Scheme assumed for a bare-host `--target` when it cannot be probed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum DefaultScheme {
+    #[default]
+    Https,
+    Http,
+}
+
+impl DefaultScheme {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DefaultScheme::Https => "https",
+            DefaultScheme::Http => "http",
+        }
+    }
+}
+
+/// Resolved log verbosity from global `-q` / `-v` flags (before `RUST_LOG` override).
+#[derive(Debug, Clone, Copy)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl LogLevel {
+    pub fn default_filter(self) -> &'static str {
+        match self {
+            LogLevel::Error => "ruso=error,reqwest=error",
+            LogLevel::Warn => "ruso=warn,reqwest=warn",
+            LogLevel::Info => "ruso=off,reqwest=off",
+            LogLevel::Debug => "ruso_runtime::runtime::http=debug,ruso=warn,reqwest=warn",
+            LogLevel::Trace => "ruso=trace,reqwest=debug",
+        }
+    }
+}
+
+impl Cli {
+    pub fn log_level(&self) -> LogLevel {
+        let level = self.verbose as i32 - self.quiet as i32;
+        match level {
+            ..=-2 => LogLevel::Error,
+            -1 => LogLevel::Warn,
+            0 => LogLevel::Info,
+            1 => LogLevel::Debug,
+            _ => LogLevel::Trace,
+        }
+    }
+
+    pub fn is_verbose(&self) -> bool {
+        self.verbose > 0
+    }
+
+    pub fn log_filter(&self) -> &'static str {
+        self.log_level().default_filter()
+    }
+}
+
+pub fn load_script(path: &std::path::Path) -> Result<String, ExitCode> {
+    std::fs::read_to_string(path).map_err(|err| {
+        tracing::error!(script = %path.display(), error = %err, "failed to read script");
+        ExitCode::from(1)
+    })
+}
+
+pub fn validate_source(source: &str, path_display: &str) -> Result<(), ExitCode> {
+    let program = parse(source).map_err(|err| {
+        tracing::error!(script = %path_display, error = %err, "validation failed");
+        ExitCode::from(1)
+    })?;
+    compile_program(&program).map_err(|err| {
+        let message = match err {
+            CompileError::MissingFindingTitle => {
+                "missing `name` metadata (required when using match/evidence)"
+            }
+            CompileError::DuplicateMitigation => {
+                "`mitigation` may appear at most once (single free-text field)"
+            }
+        };
+        tracing::error!(script = %path_display, error = %message, "validation failed");
+        ExitCode::from(1)
+    })?;
+    Ok(())
+}
+
+pub fn executor_config_from_exec(args: &ExecArgs) -> Result<ExecutorConfig, ExitCode> {
+    let default_timeout = parse_cli_duration(&args.timeout, "--timeout")?;
+    let read_timeout = parse_cli_duration(&args.read_timeout, "--read-timeout")?;
+    let max_script_duration = Some(parse_cli_duration(
+        &args.script_timeout,
+        "--script-timeout",
+    )?);
+
+    if args.insecure {
+        tracing::warn!(
+            "TLS verification disabled via --insecure; MITM can plant findings or expose request data"
+        );
+    }
+
+    Ok(ExecutorConfig {
+        base_url: String::new(),
+        default_timeout,
+        read_timeout,
+        max_response_bytes: args.max_response_bytes,
+        follow_redirect: !args.no_follow_redirects,
+        verify_ssl: !args.insecure,
+        proxy: args.proxy.clone(),
+        max_script_duration,
+        http_retries: args.retries,
+    })
+}
+
+pub fn executor_base_config(args: &ScanArgs) -> Result<ExecutorConfig, ExitCode> {
+    let default_timeout = parse_cli_duration(&args.timeout, "--timeout")?;
+    let read_timeout = parse_cli_duration(&args.read_timeout, "--read-timeout")?;
+    let max_script_duration = Some(parse_cli_duration(
+        &args.script_timeout,
+        "--script-timeout",
+    )?);
+
+    if args.insecure {
+        tracing::warn!(
+            "TLS verification disabled via --insecure; MITM can plant findings or expose request data"
+        );
+    }
+
+    Ok(ExecutorConfig {
+        base_url: String::new(),
+        default_timeout,
+        read_timeout,
+        max_response_bytes: args.max_response_bytes,
+        follow_redirect: !args.no_follow_redirects,
+        verify_ssl: !args.insecure,
+        proxy: args.proxy.clone(),
+        max_script_duration,
+        http_retries: args.retries,
+    })
+}
+
+fn parse_cli_duration(value: &str, flag: &str) -> Result<std::time::Duration, ExitCode> {
+    ruso_runtime::parse_duration(value).map_err(|err| {
+        tracing::error!(value = %value, flag = %flag, error = %err, "invalid duration");
+        ExitCode::from(1)
+    })
+}
+
+pub fn executor_config_for_target(base: &ExecutorConfig, target: &str) -> ExecutorConfig {
+    ExecutorConfig {
+        base_url: normalize_base_url(target),
+        ..base.clone()
+    }
+}
+
+/// The runtime derives `{{scan_host}}` from `base_url` (via `Url::parse`) and
+/// uses it as the prefix for HTTP probe paths, so it needs a scheme. A user
+/// scanning a non-HTTP service may pass a bare host/IP (`127.0.0.1`,
+/// `db.internal:5432`); give it an `http://` carrier so host extraction and
+/// any HTTP probe still work. A target that already has a scheme is untouched.
+fn normalize_base_url(target: &str) -> String {
+    if target.starts_with("http://") || target.starts_with("https://") {
+        target.to_string()
+    } else {
+        format!("http://{target}")
+    }
+}

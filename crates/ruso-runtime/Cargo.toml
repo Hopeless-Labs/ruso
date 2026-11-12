@@ -1,0 +1,27 @@
+[package]
+name = "ruso-runtime"
+description = "Ruso bytecode VM and execution runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+
+[lib]
+name = "ruso_runtime"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+futures.workspace = true
+reqwest = { workspace = true, features = ["cookies"] }
+tokio = { workspace = true, features = ["net", "time", "io-util"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+webpki-roots = "0.26"
+regex = "1.11"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net", "time", "io-util", "test-util"] }

@@ -1,0 +1,35 @@
+metadata {
+    name "Redis exposed without authentication"
+    description "Send Redis RESP PING on TCP/6379; unauthenticated instances reply with PONG"
+    impact "Unauthenticated Redis allows data read/write, RCE via module abuse, and lateral movement"
+    severity critical
+    author "ruso-lab"
+    cve ["CVE-2015-4335"]
+    cwe ["CWE-306"]
+    cvss_score 9.8
+    cvss "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
+    references [
+        "https://redis.io/docs/management/security/",
+        "https://nvd.nist.gov/vuln/detail/CVE-2015-4335"
+    ]
+    mitigation "Require AUTH, enable protected-mode, bind Redis to localhost or a private interface, and block port 6379 at the firewall"
+}
+
+# Host comes from CLI --target via {{scan_host}} (see RSL "Scan target variables").
+# RESP `*1\r\n$4\r\nPING\r\n` as hex — text payloads are sent verbatim, so control
+# bytes (CRLF) must go through `payload bytes`, not a "\r\n" escape in a string.
+# read_idle lets the read return once Redis has sent +PONG and gone quiet.
+tcp redis_ping {
+    host "{{scan_host}}"
+    port 6379
+    read_idle 300ms
+    payload bytes "2a310d0a24340d0a50494e470d0a"
+}
+
+send redis_ping
+
+match redis_ping.response contains "PONG"
+match redis_ping.response not_contains "NOAUTH"
+match redis_ping.response not_contains "ERR"
+
+evidence redis_ping regex 'PONG'

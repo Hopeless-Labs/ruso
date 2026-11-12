@@ -1,0 +1,18 @@
+[package]
+name = "ruso-script"
+description = "Ruso Scripting Language (RSL) parser and compiler to ruso-runtime bytecode"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+
+[lib]
+name = "ruso_script"
+path = "src/lib.rs"
+
+[dependencies]
+ruso-runtime.workspace = true
+thiserror.workspace = true
+pest = "2.8.1"
+pest_derive = "2.8.1"

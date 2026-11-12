@@ -1,0 +1,31 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+# Shared package metadata. The three crates ship as one unit and are versioned
+# in lockstep, so the version lives here rather than in each manifest.
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/Hopeless-Labs/ruso"
+documentation = "https://docs.ruso.hopeless-labs.com"
+
+# Dependencies used by more than one crate are declared once here so the
+# versions and base feature sets can't drift apart. A member crate may add
+# features on top of these (it cannot remove them).
+[workspace.dependencies]
+ruso-runtime = { path = "crates/ruso-runtime", version = "1.0.0" }
+ruso-script = { path = "crates/ruso-script", version = "1.0.0" }
+
+thiserror = "2.0.12"
+serde_json = "1"
+tracing = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+futures = { version = "0.3", default-features = false, features = ["std"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "multipart",
+    "stream",
+] }

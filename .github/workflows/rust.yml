@@ -1,0 +1,48 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  build:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Build
+        run: cargo build --workspace --verbose
+      - name: Test
+        run: cargo test --workspace --verbose
+      # The book's /api section is generated from these docs, and every public
+      # item is expected to carry one — a missing doc comment fails the build.
+      - name: Docs
+        env:
+          RUSTDOCFLAGS: "-D warnings -D missing_docs"
+        run: cargo doc --workspace --no-deps
+
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit || true
+      - name: Audit dependencies
+        run: cargo audit
