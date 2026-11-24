@@ -286,6 +286,14 @@ impl RegistryClient {
         Self::no_content_response(resp, &path).await
     }
 
+    /// Admin-only: rebuild every stored version's bytecode and metadata from
+    /// its source with the registry's current compiler.
+    pub async fn admin_recompile(&self) -> Result<RecompileResponse, RegistryError> {
+        let path = "/v1/admin/scripts/recompile";
+        let resp = self.request(reqwest::Method::POST, path).send().await?;
+        Self::json_response(resp, path).await
+    }
+
     /// 204-or-error helper for the yank-family endpoints. Mirrors
     /// `json_response`'s error path but doesn't try to parse a body.
     async fn no_content_response(resp: reqwest::Response, path: &str) -> Result<(), RegistryError> {
@@ -312,6 +320,9 @@ impl RegistryClient {
         }
         if let Some(sev) = &params.severity {
             query.push(("severity", sev.clone()));
+        }
+        if let Some(conf) = &params.confidence {
+            query.push(("confidence", conf.clone()));
         }
         if let Some(cve) = &params.cve {
             query.push(("cve", cve.clone()));
@@ -399,6 +410,7 @@ pub struct VersionSummary {
 pub struct SearchParams {
     pub q: Option<String>,
     pub severity: Option<String>,
+    pub confidence: Option<String>,
     pub cve: Option<String>,
     pub namespace: Option<String>,
     pub family: Option<String>,
@@ -474,12 +486,30 @@ pub struct TokenCreatedResponse {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RecompileResponse {
+    pub total: usize,
+    pub recompiled: usize,
+    #[serde(default)]
+    pub failed: Vec<RecompileFailure>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RecompileFailure {
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SearchHit {
     pub namespace: String,
     pub name: String,
     pub description: Option<String>,
     pub visibility: String,
     pub severity: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]

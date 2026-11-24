@@ -93,6 +93,23 @@ pub enum AdminCommand {
     /// Hard-delete a published version or an entire script. Irreversible —
     /// the data is removed, not yanked. Frees the version/slug for re-publish.
     Delete(AdminDeleteArgs),
+    /// Rebuild every stored version's bytecode and metadata from its source
+    /// with the registry's current compiler. Run once after the registry is
+    /// deployed with a changed bytecode layout.
+    Recompile(AdminRecompileArgs),
+}
+
+#[derive(Debug, Parser)]
+pub struct AdminRecompileArgs {
+    #[command(flatten)]
+    pub registry: RegistryArgs,
+    /// Required acknowledgement — this rewrites the stored bytecode of every
+    /// published version.
+    #[arg(long)]
+    pub yes: bool,
+    /// Emit the registry's JSON response instead of the human summary.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Parser)]
@@ -302,6 +319,10 @@ pub struct SearchArgs {
     pub tag: Vec<String>,
     #[arg(long, value_name = "SEVERITY")]
     pub severity: Option<String>,
+    /// Exact match on the latest version's declared `confidence`. Scripts
+    /// that declare none never match.
+    #[arg(long, value_enum, value_name = "LEVEL")]
+    pub confidence: Option<MinConfidence>,
     #[arg(long, value_name = "CVE")]
     pub cve: Option<String>,
     #[arg(long, value_name = "NAMESPACE")]
@@ -526,7 +547,8 @@ impl DefaultScheme {
     }
 }
 
-/// Threshold for `ruso scan --min-confidence`.
+/// A confidence level on the command line: the threshold for
+/// `--min-confidence`, and the exact value for `ruso search --confidence`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum MinConfidence {
     Tentative,

@@ -77,6 +77,7 @@ pub async fn run() -> process::ExitCode {
         },
         Command::Admin(args) => match args.action {
             args::AdminCommand::Delete(a) => cmd_registry::cmd_admin_delete(a).await,
+            args::AdminCommand::Recompile(a) => cmd_registry::cmd_admin_recompile(a).await,
         },
     }
 }

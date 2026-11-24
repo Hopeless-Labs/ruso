@@ -9,9 +9,9 @@ use std::process::ExitCode;
 use ruso_script::{Program, Stmt, parse};
 
 use crate::cli::args::{
-    AdminDeleteArgs, EditArgs, InfoArgs, InstallArgs, LoginArgs, PatCreateArgs, PatListArgs,
-    PatRevokeArgs, PublishArgs, RegistryArgs, RegistryOnlyArgs, SearchArgs, UnyankArgs, Visibility,
-    YankArgs,
+    AdminDeleteArgs, AdminRecompileArgs, EditArgs, InfoArgs, InstallArgs, LoginArgs, PatCreateArgs,
+    PatListArgs, PatRevokeArgs, PublishArgs, RegistryArgs, RegistryOnlyArgs, SearchArgs,
+    UnyankArgs, Visibility, YankArgs,
 };
 use crate::cli::credentials::{self, Credentials};
 use crate::cli::discover::{discover_bytecode, discover_scripts};
@@ -476,6 +476,7 @@ pub async fn cmd_search(args: SearchArgs) -> ExitCode {
     let params = SearchParams {
         q: args.query,
         severity: args.severity,
+        confidence: args.confidence.map(|c| c.level().as_str().to_string()),
         cve: args.cve,
         namespace: args.namespace,
         family: args.family,
@@ -512,12 +513,13 @@ fn print_search_table(resp: &crate::cli::registry::SearchResponse) {
         return;
     }
     println!(
-        "{:<40} {:<10} {:<10} {:<10} TAGS",
-        "SCRIPT", "VIS", "SEVERITY", "FAMILY"
+        "{:<40} {:<10} {:<10} {:<11} {:<10} TAGS",
+        "SCRIPT", "VIS", "SEVERITY", "CONFIDENCE", "FAMILY"
     );
     for hit in &resp.results {
         let id = format!("{}/{}", hit.namespace, hit.name);
         let sev = hit.severity.clone().unwrap_or_else(|| "-".into());
+        let conf = hit.confidence.clone().unwrap_or_else(|| "-".into());
         let fam = hit.family.clone().unwrap_or_else(|| "-".into());
         let tags = if hit.tags.is_empty() {
             "-".into()
@@ -525,8 +527,8 @@ fn print_search_table(resp: &crate::cli::registry::SearchResponse) {
             hit.tags.join(",")
         };
         println!(
-            "{:<40} {:<10} {:<10} {:<10} {}",
-            id, hit.visibility, sev, fam, tags
+            "{:<40} {:<10} {:<10} {:<11} {:<10} {}",
+            id, hit.visibility, sev, conf, fam, tags
         );
     }
     let last_page = ((resp.total as u32).max(1)).div_ceil(resp.per_page.max(1));
@@ -703,6 +705,52 @@ pub async fn cmd_admin_delete(args: AdminDeleteArgs) -> ExitCode {
             ui::error(&err.to_string());
             ExitCode::from(1)
         }
+    }
+}
+
+pub async fn cmd_admin_recompile(args: AdminRecompileArgs) -> ExitCode {
+    if !args.yes {
+        ui::error(
+            "refusing to recompile without --yes (this rewrites the stored bytecode of every published version)",
+        );
+        return ExitCode::from(1);
+    }
+    let Some(client) = require_authed_client(&args.registry).await else {
+        return ExitCode::from(1);
+    };
+    let resp = match ui::with_spinner("recompiling", client.admin_recompile()).await {
+        Ok(resp) => resp,
+        Err(err) => {
+            ui::error(&err.to_string());
+            return ExitCode::from(1);
+        }
+    };
+    if args.json {
+        match serde_json::to_string_pretty(&resp) {
+            Ok(s) => println!("{s}"),
+            Err(err) => {
+                ui::error(&err.to_string());
+                return ExitCode::from(1);
+            }
+        }
+    } else {
+        println!(
+            "recompiled {} of {} version(s)",
+            resp.recompiled, resp.total
+        );
+        for f in &resp.failed {
+            ui::error(&format!(
+                "{}/{}@{}: {}",
+                f.namespace, f.name, f.version, f.error
+            ));
+        }
+    }
+    // A version that no longer compiles is still served as stale bytecode,
+    // so a partial run is a failure the operator has to act on.
+    if resp.failed.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
     }
 }
 

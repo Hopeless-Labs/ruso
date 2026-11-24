@@ -34,6 +34,11 @@ crate they affect.
   only the scripts that declare at least that confidence. Scripts below the
   level, and scripts that declare none, are skipped before any probe is sent;
   a warning says how many were skipped. `ruso exec` takes the same flag.
+- **`ruso search --confidence <level>`** (`ruso-cli`). Exact-match filter on a
+  script's declared confidence; the results table gains a `CONFIDENCE` column.
+- **`ruso admin recompile --yes`** (`ruso-cli`). Asks the registry to rebuild
+  every stored version's bytecode and metadata from its source. Run it once
+  after the registry is deployed with a changed bytecode layout.
 - **Confidence on the console** (`ruso-cli`). A finding line ends with the
   check's confidence in dimmed parentheses when it declares one:
   `[CRITICAL] 10.0.0.5  Redis exposed without authentication  (certain)`.
