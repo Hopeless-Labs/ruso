@@ -17,8 +17,8 @@ use crate::cli::credentials::{self, Credentials};
 use crate::cli::discover::{discover_bytecode, discover_scripts};
 use crate::cli::install_store::{self, CacheMode, InstallStore, RegistryRef, parse_ref};
 use crate::cli::registry::{
-    CreateTokenRequest, PatchScriptRequest, RegistryClient, RegistryError, ScriptResponse,
-    SearchParams, TokenSummary, resolve_base_url,
+    CreateTokenRequest, FindingMetadata, PatchScriptRequest, RegistryClient, RegistryError,
+    ScriptResponse, SearchParams, TokenSummary, resolve_base_url,
 };
 use crate::cli::ui;
 
@@ -569,7 +569,18 @@ pub async fn cmd_info(args: InfoArgs) -> ExitCode {
                     }
                 }
             } else {
-                print_info_human(&script);
+                // Severity and confidence live on the version, not the script.
+                // Best-effort: `info` still works if this second call fails.
+                let latest = script.versions.iter().find(|v| v.yanked_at.is_none());
+                let metadata = match latest {
+                    Some(v) => client
+                        .version_metadata(&ns, &name, &v.version)
+                        .await
+                        .map(|r| r.metadata)
+                        .ok(),
+                    None => None,
+                };
+                print!("{}", info_human(&script, metadata.as_ref()));
             }
             ExitCode::SUCCESS
         }
@@ -580,42 +591,64 @@ pub async fn cmd_info(args: InfoArgs) -> ExitCode {
     }
 }
 
-fn print_info_human(s: &ScriptResponse) {
-    println!("{}/{}", s.namespace, s.name);
-    println!("  visibility: {}", s.visibility);
+/// The human `ruso info` view. `metadata` is the latest non-yanked version's
+/// finding metadata, when it could be fetched.
+fn info_human(s: &ScriptResponse, metadata: Option<&FindingMetadata>) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    writeln!(out, "{}/{}", s.namespace, s.name).ok();
+    writeln!(out, "  visibility: {}", s.visibility).ok();
     if let Some(fam) = &s.family
         && !fam.is_empty()
     {
-        println!("  family: {fam}");
+        writeln!(out, "  family: {fam}").ok();
     }
     if let Some(d) = &s.description
         && !d.is_empty()
     {
-        println!("  description: {d}");
+        writeln!(out, "  description: {d}").ok();
+    }
+    if let Some(m) = metadata {
+        if let Some(sev) = m.severity.as_deref().filter(|v| !v.is_empty()) {
+            writeln!(out, "  severity: {sev}").ok();
+        }
+        if let Some(conf) = m.confidence.as_deref().filter(|v| !v.is_empty()) {
+            writeln!(out, "  confidence: {conf}").ok();
+        }
     }
     if !s.tags.is_empty() {
-        println!("  tags: {}", s.tags.join(", "));
+        writeln!(out, "  tags: {}", s.tags.join(", ")).ok();
     }
     let latest = s.versions.iter().find(|v| v.yanked_at.is_none());
     if let Some(v) = latest {
-        println!("  latest: {} ({} downloads)", v.version, v.download_count);
-        println!();
-        println!("  install:");
-        println!("    ruso install {}/{}", s.namespace, s.name);
-        println!(
+        writeln!(
+            out,
+            "  latest: {} ({} downloads)",
+            v.version, v.download_count
+        )
+        .ok();
+        writeln!(out).ok();
+        writeln!(out, "  install:").ok();
+        writeln!(out, "    ruso install {}/{}", s.namespace, s.name).ok();
+        writeln!(
+            out,
             "    ruso scan --script {}/{} --target https://example.com",
             s.namespace, s.name
-        );
+        )
+        .ok();
     }
-    println!();
-    println!("  versions ({}):", s.versions.len());
+    writeln!(out).ok();
+    writeln!(out, "  versions ({}):", s.versions.len()).ok();
     for v in &s.versions {
         let yank = if v.yanked_at.is_some() { " yanked" } else { "" };
-        println!(
+        writeln!(
+            out,
             "    {:<14} {:>10} downloads  {} bytes{}",
             v.version, v.download_count, v.size_bytes, yank
-        );
+        )
+        .ok();
     }
+    out
 }
 
 pub async fn cmd_yank(args: YankArgs) -> ExitCode {
@@ -1177,4 +1210,38 @@ pub async fn resolve_family_to_bytecodes(
         ));
     }
     Ok(paths)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn info_shows_severity_and_confidence_of_the_latest_version() {
+        let script: ScriptResponse = serde_json::from_value(serde_json::json!({
+            "namespace": "lab",
+            "name": "redis-unauth",
+            "description": null,
+            "visibility": "public",
+            "tags": [],
+            "versions": [{
+                "version": "0.1.0",
+                "size_bytes": 10,
+                "published_at": "2026-11-24T00:00:00Z",
+                "yanked_at": null,
+            }],
+        }))
+        .unwrap();
+
+        let plain = info_human(&script, None);
+        assert!(!plain.contains("confidence:"));
+        assert!(!plain.contains("severity:"));
+
+        let metadata = FindingMetadata {
+            severity: Some("critical".into()),
+            confidence: Some("certain".into()),
+        };
+        let shown = info_human(&script, Some(&metadata));
+        assert!(shown.contains("  severity: critical\n  confidence: certain\n"));
+    }
 }

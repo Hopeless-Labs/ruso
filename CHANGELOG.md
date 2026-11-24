@@ -39,6 +39,8 @@ crate they affect.
 - **`ruso admin recompile --yes`** (`ruso-cli`). Asks the registry to rebuild
   every stored version's bytecode and metadata from its source. Run it once
   after the registry is deployed with a changed bytecode layout.
+- **`ruso info` shows severity and confidence** (`ruso-cli`) of the latest
+  non-yanked version, when the script declares them.
 - **Confidence on the console** (`ruso-cli`). A finding line ends with the
   check's confidence in dimmed parentheses when it declares one:
   `[CRITICAL] 10.0.0.5  Redis exposed without authentication  (certain)`.

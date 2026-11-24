@@ -158,6 +158,18 @@ impl RegistryClient {
         Self::json_response(resp, &path).await
     }
 
+    /// Metadata of one exact published version (severity, confidence, CVEs, …).
+    pub async fn version_metadata(
+        &self,
+        namespace: &str,
+        name: &str,
+        version: &str,
+    ) -> Result<VersionMetadataResponse, RegistryError> {
+        let path = format!("/v1/scripts/{namespace}/{name}/versions/{version}");
+        let resp = self.request(reqwest::Method::GET, &path).send().await?;
+        Self::json_response(resp, &path).await
+    }
+
     pub async fn download_bytecode(
         &self,
         namespace: &str,
@@ -404,6 +416,23 @@ pub struct VersionSummary {
     pub yanked_at: Option<String>,
     #[serde(default)]
     pub download_count: i64,
+}
+
+/// The slice of `GET /v1/scripts/:ns/:name/versions/:version` the CLI reads.
+#[derive(Debug, Clone, Deserialize)]
+pub struct VersionMetadataResponse {
+    #[serde(default)]
+    pub metadata: FindingMetadata,
+}
+
+/// Finding metadata the registry extracted from a version's `metadata { }`
+/// block. Every field is optional: older versions predate some of them.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FindingMetadata {
+    #[serde(default)]
+    pub severity: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
