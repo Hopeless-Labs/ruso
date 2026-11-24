@@ -20,8 +20,9 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::contract::{
-    BodyValue, CmpOp, CmpValue, EvidenceKind, ExtractSource, FieldKind, HttpMethod, InlinePart,
-    InlinePartBody, MatchPredicate, ObjectBody, QualifiedField, QualifiedMatch, Severity,
+    BodyValue, CmpOp, CmpValue, Confidence, EvidenceKind, ExtractSource, FieldKind, HttpMethod,
+    InlinePart, InlinePartBody, MatchPredicate, ObjectBody, QualifiedField, QualifiedMatch,
+    Severity,
 };
 use crate::runtime::bytecode::{BytecodeProgram, Instr};
 use crate::runtime::spec::{CheckMetadata, HttpRequestSpec, ProbeKind, ProgramSpec};
@@ -496,9 +497,15 @@ fn write_metadata(w: &mut Writer, metadata: &CheckMetadata) {
     w.opt_str(&metadata.mitigation);
     write_strings(w, &metadata.tags);
     w.opt_str(&metadata.version);
-    // `family` is the last field of the metadata block. Any change to this
-    // layout must bump VERSION (the registry has to redeploy + recompile).
     w.opt_str(&metadata.family);
+    // `confidence` is the last field of the metadata block.
+    match &metadata.confidence {
+        Some(c) => {
+            w.u8(1);
+            w.u8(confidence_tag(c));
+        }
+        None => w.u8(0),
+    }
 }
 
 fn read_metadata(r: &mut Reader<'_>) -> Result<CheckMetadata, BytecodeError> {
@@ -521,6 +528,28 @@ fn read_metadata(r: &mut Reader<'_>) -> Result<CheckMetadata, BytecodeError> {
         tags: read_strings(r)?,
         version: r.opt_str()?,
         family: r.opt_str()?,
+        confidence: if r.u8()? == 0 {
+            None
+        } else {
+            Some(read_confidence(r)?)
+        },
+    })
+}
+
+fn confidence_tag(c: &Confidence) -> u8 {
+    match c {
+        Confidence::Tentative => 0,
+        Confidence::Firm => 1,
+        Confidence::Certain => 2,
+    }
+}
+
+fn read_confidence(r: &mut Reader<'_>) -> Result<Confidence, BytecodeError> {
+    Ok(match r.u8()? {
+        0 => Confidence::Tentative,
+        1 => Confidence::Firm,
+        2 => Confidence::Certain,
+        _ => return Err(BytecodeError::Corrupt("confidence")),
     })
 }
 
@@ -1504,6 +1533,7 @@ mod tests {
             tags: vec!["auth".into(), "rce".into()],
             version: Some("1.2.3".into()),
             family: Some("web".into()),
+            confidence: Some(Confidence::Firm),
         };
         let mut w = Writer::default();
         write_metadata(&mut w, &metadata);
@@ -1515,6 +1545,27 @@ mod tests {
         assert_eq!(decoded.severity, Some(Severity::High));
         assert_eq!(decoded.version.as_deref(), Some("1.2.3"));
         assert_eq!(decoded.family.as_deref(), Some("web"));
+        assert_eq!(decoded.confidence, Some(Confidence::Firm));
+    }
+
+    #[test]
+    fn metadata_roundtrip_keeps_confidence_unset() {
+        let mut w = Writer::default();
+        write_metadata(&mut w, &CheckMetadata::default());
+        let mut r = Reader::new(&w.0);
+        assert_eq!(read_metadata(&mut r).unwrap().confidence, None);
+    }
+
+    #[test]
+    fn read_confidence_roundtrips_every_level_and_rejects_unknown() {
+        for level in [Confidence::Tentative, Confidence::Firm, Confidence::Certain] {
+            let buf = [confidence_tag(&level)];
+            assert_eq!(read_confidence(&mut Reader::new(&buf)).unwrap(), level);
+        }
+        assert!(matches!(
+            read_confidence(&mut Reader::new(&[3u8])),
+            Err(BytecodeError::Corrupt("confidence"))
+        ));
     }
 
     #[test]

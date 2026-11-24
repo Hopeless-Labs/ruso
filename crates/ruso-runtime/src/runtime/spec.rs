@@ -155,6 +155,9 @@ pub struct CheckMetadata {
     /// in this family" selection. The allowed set is enforced by the
     /// registry at publish time, not here.
     pub family: Option<String>,
+    /// How sure the check is that a positive result is real. Unset when the
+    /// script declares no `confidence`; never defaulted to a level.
+    pub confidence: Option<crate::contract::Confidence>,
 }
 
 /// The non-executable part of a compiled program: the probe table and the

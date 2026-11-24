@@ -104,6 +104,10 @@ pub struct FindingRecord {
     pub script: String,
     pub name: String,
     pub severity: String,
+    /// How sure the check is that the finding is real (`tentative`, `firm`,
+    /// `certain`); omitted when the script declares no `confidence`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -234,6 +238,7 @@ impl ScanResultRecord {
                 script: script.clone(),
                 name: f.name.clone(),
                 severity: f.severity.as_str().to_string(),
+                confidence: f.confidence.as_ref().map(|c| c.as_str().to_string()),
                 description: f.description.clone(),
                 impact: f.impact.clone(),
                 author: f.author.clone(),
@@ -371,6 +376,7 @@ fn write_csv_file(report: &ScanRunReport, path: &Path) -> Result<(), String> {
             "target",
             "script",
             "severity",
+            "confidence",
             "finding_name",
             "description",
             "impact",
@@ -421,6 +427,7 @@ fn write_csv_row(
             target,
             finding.script.as_str(),
             finding.severity.as_str(),
+            finding.confidence.as_deref().unwrap_or(""),
             finding.name.as_str(),
             finding.description.as_deref().unwrap_or(""),
             finding.impact.as_deref().unwrap_or(""),
@@ -666,17 +673,27 @@ fn script_label(script: &str) -> String {
 }
 
 /// One readable line per finding: a colour-coded `[SEVERITY]` tag, the bold
-/// target, then the finding title. The full metadata (description, cve/cwe,
-/// cvss, mitigation, evidence, version, family, tags, …) is written to the
-/// `--report` json/csv file, not the console log.
+/// target, the finding title, and — when the check declares one — its
+/// confidence as a dimmed `(level)` suffix. The full metadata (description,
+/// cve/cwe, cvss, mitigation, evidence, version, family, tags, …) is written
+/// to the `--report` json/csv file, not the console log.
 pub fn print_finding_line(target: &str, finding: &FindingRecord) {
-    let c = style::colors_enabled();
-    println!(
+    println!("{}", finding_line(style::colors_enabled(), target, finding));
+}
+
+/// The text of one finding line, with colour when `c` is set.
+fn finding_line(c: bool, target: &str, finding: &FindingRecord) -> String {
+    let mut line = format!(
         "{} {}  {}",
         style::severity_tag(c, &finding.severity),
         style::target(c, display_target(target)),
         finding.name,
     );
+    if let Some(confidence) = &finding.confidence {
+        line.push_str("  ");
+        line.push_str(&style::dim(c, &format!("({confidence})")));
+    }
+    line
 }
 
 /// Strip the `http(s)://` carrier scheme for display. `--target` may be a URL
@@ -722,6 +739,7 @@ mod tests {
             script: script.into(),
             name: name.into(),
             severity: "high".into(),
+            confidence: None,
             description: None,
             impact: None,
             author: None,
@@ -736,6 +754,20 @@ mod tests {
             tags: Vec::new(),
             evidence: Vec::new(),
         }
+    }
+
+    #[test]
+    fn finding_line_appends_confidence_only_when_declared() {
+        let mut f = finding("s.rsl", "Redis exposed");
+        assert_eq!(
+            finding_line(false, "http://10.0.0.5", &f),
+            "[HIGH]     10.0.0.5  Redis exposed"
+        );
+        f.confidence = Some("certain".into());
+        assert_eq!(
+            finding_line(false, "http://10.0.0.5", &f),
+            "[HIGH]     10.0.0.5  Redis exposed  (certain)"
+        );
     }
 
     #[test]

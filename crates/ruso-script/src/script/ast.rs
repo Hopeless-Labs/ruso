@@ -7,8 +7,9 @@
 //! the parser and the VM cannot drift apart.
 
 pub use ruso_runtime::contract::{
-    BodyValue, CmpOp, CmpValue, EvidenceKind, ExtractSource, FieldKind, HttpMethod, InlinePart,
-    InlinePartBody, MatchPredicate, ObjectBody, QualifiedField, QualifiedMatch, Severity,
+    BodyValue, CmpOp, CmpValue, Confidence, EvidenceKind, ExtractSource, FieldKind, HttpMethod,
+    InlinePart, InlinePartBody, MatchPredicate, ObjectBody, QualifiedField, QualifiedMatch,
+    Severity,
 };
 
 /// A parsed script: every statement in source order.
@@ -98,6 +99,9 @@ pub enum Stmt {
     /// `family "…"` — the family the check belongs to, as used by
     /// `ruso scan --family`.
     Family(String),
+    /// `confidence …` — how sure the check is that a positive result is real
+    /// (`tentative`, `firm`, or `certain`); unset when absent.
+    Confidence(Confidence),
 
     /// `set <name> = <value>` — bind a variable.
     Set {
@@ -224,6 +228,7 @@ impl Stmt {
                 | Self::Tag(_)
                 | Self::Version(_)
                 | Self::Family(_)
+                | Self::Confidence(_)
         )
     }
 

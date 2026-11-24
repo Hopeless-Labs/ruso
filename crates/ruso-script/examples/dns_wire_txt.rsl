@@ -23,4 +23,4 @@ send wire_txt
 # Socket fields are `.response` / `.banner`; `.response_size` is HTTP-only.
 match wire_txt.response contains "ruso-dns-ok"
 
-evidence wire_txt regex 'ruso-dns-ok'
+evidence wire_txt.response regex 'ruso-dns-ok'

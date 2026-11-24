@@ -216,6 +216,7 @@ async fn cmd_exec(args: args::ExecArgs, verbose: bool) -> process::ExitCode {
         .into_iter()
         .map(|(label, bytecode)| PreparedScript::Ready { label, bytecode })
         .collect();
+    let prepared_scripts = filter_by_min_confidence(prepared_scripts, args.min_confidence);
 
     let scan_started = Instant::now();
     ScanPipeline {
@@ -353,6 +354,8 @@ async fn cmd_scan(args: ScanArgs, verbose: bool) -> process::ExitCode {
         }
     };
 
+    let prepared_scripts = filter_by_min_confidence(prepared_scripts, args.min_confidence);
+
     // Resolve the URL scheme for bare-host targets (https-first) before the
     // run. Skipped when no script makes HTTP requests — the carrier scheme is
     // irrelevant to TCP/UDP/DNS probes. Targets with an explicit scheme are
@@ -416,6 +419,35 @@ enum PreparedScript {
         label: String,
         error: String,
     },
+}
+
+/// Apply `--min-confidence`: drop scripts below the threshold before anything
+/// runs. Confidence is static metadata, so there is no point sending their
+/// probes only to discard the findings. Scripts that failed to load stay, so
+/// their errors are still reported. Warns when anything was dropped.
+fn filter_by_min_confidence(
+    prepared: Vec<PreparedScript>,
+    min: Option<args::MinConfidence>,
+) -> Vec<PreparedScript> {
+    let Some(min) = min else {
+        return prepared;
+    };
+    let before = prepared.len();
+    let kept: Vec<PreparedScript> = prepared
+        .into_iter()
+        .filter(|p| match p {
+            PreparedScript::Ready { bytecode, .. } => min.admits(bytecode.spec.metadata.confidence),
+            PreparedScript::Failed { .. } => true,
+        })
+        .collect();
+    let skipped = before - kept.len();
+    if skipped > 0 {
+        ui::warn(&format!(
+            "--min-confidence {}: skipped {skipped} of {before} script(s) below that level or with no `confidence`",
+            min.level().as_str(),
+        ));
+    }
+    kept
 }
 
 /// `.rbc` files are lowercase hex (from `compile`). Legacy raw `RUSO` bytes still accepted.

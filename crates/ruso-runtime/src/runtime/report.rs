@@ -1,4 +1,4 @@
-use crate::contract::Severity;
+use crate::contract::{Confidence, Severity};
 use crate::runtime::spec::CheckMetadata;
 
 /// A single positive result: the check's metadata resolved into a concrete
@@ -14,6 +14,9 @@ pub struct Finding {
     pub impact: Option<String>,
     /// Severity (defaults to `Info` when the check set none).
     pub severity: Severity,
+    /// How sure the check is that this finding is real (`None` when the check
+    /// declared no `confidence`).
+    pub confidence: Option<Confidence>,
     /// Check author.
     pub author: Option<String>,
     /// Associated CVE identifiers.
@@ -41,6 +44,7 @@ impl Finding {
             description: metadata.description.clone(),
             impact: metadata.impact.clone(),
             severity: metadata.severity.clone().unwrap_or(Severity::Info),
+            confidence: metadata.confidence,
             author: metadata.author.clone(),
             cve: metadata.cve.clone(),
             cwe: metadata.cwe.clone(),

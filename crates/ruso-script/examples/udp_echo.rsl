@@ -19,4 +19,4 @@ send echo
 
 match echo.response contains "RUSO-PING"
 
-evidence echo regex 'RUSO-PING'
+evidence echo.response regex 'RUSO-PING'

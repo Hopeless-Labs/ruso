@@ -1,7 +1,7 @@
 use pest::iterators::{Pair, Pairs};
 
 use crate::script::ast::{
-    BodyValue, CmpOp, CmpValue, HttpMethod, InlinePart, InlinePartBody, Severity,
+    BodyValue, CmpOp, CmpValue, Confidence, HttpMethod, InlinePart, InlinePartBody, Severity,
 };
 use crate::script::grammar::Rule;
 
@@ -72,6 +72,17 @@ pub(crate) fn parse_severity(value: &str) -> Severity {
         "high" => Severity::High,
         "critical" => Severity::Critical,
         _ => Severity::Info,
+    }
+}
+
+/// Map a `confidence_lit` to its level. The grammar only admits the three
+/// known words, so anything else is a parser bug surfaced as `None`.
+pub(crate) fn parse_confidence(value: &str) -> Option<Confidence> {
+    match value.to_ascii_lowercase().as_str() {
+        "tentative" => Some(Confidence::Tentative),
+        "firm" => Some(Confidence::Firm),
+        "certain" => Some(Confidence::Certain),
+        _ => None,
     }
 }
 

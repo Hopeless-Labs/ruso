@@ -1087,7 +1087,7 @@ dependencies = [
 
 [[package]]
 name = "ruso-cli"
-version = "1.0.0"
+version = "0.0.1"
 dependencies = [
  "clap",
  "csv",
@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "ruso-runtime"
-version = "1.0.0"
+version = "0.0.1"
 dependencies = [
  "futures",
  "regex",
@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "ruso-script"
-version = "1.0.0"
+version = "0.0.1"
 dependencies = [
  "pest",
  "pest_derive",

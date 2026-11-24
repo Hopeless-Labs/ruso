@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use ruso_runtime::ExecutorConfig;
+use ruso_runtime::{Confidence, ExecutorConfig};
 use ruso_script::{CompileError, compile_program, parse};
 
 #[derive(Debug, Parser)]
@@ -413,6 +413,12 @@ pub struct ScanArgs {
     #[arg(long, value_name = "FILE.json|FILE.csv")]
     pub report: Option<PathBuf>,
 
+    /// Only run scripts whose metadata declares at least this `confidence`
+    /// (`tentative` < `firm` < `certain`). Scripts below the level are not
+    /// run at all, and neither are scripts that declare no `confidence`.
+    #[arg(long, value_enum, value_name = "LEVEL")]
+    pub min_confidence: Option<MinConfidence>,
+
     /// Registry to resolve `<namespace>/<name>[@<range>]` references against.
     #[command(flatten)]
     pub registry: RegistryArgs,
@@ -492,6 +498,12 @@ pub struct ExecArgs {
     #[arg(long, value_name = "FILE.json|FILE.csv")]
     pub report: Option<PathBuf>,
 
+    /// Only run bytecode whose metadata declares at least this `confidence`
+    /// (`tentative` < `firm` < `certain`). Bytecode below the level is not
+    /// run at all, and neither is bytecode that declares no `confidence`.
+    #[arg(long, value_enum, value_name = "LEVEL")]
+    pub min_confidence: Option<MinConfidence>,
+
     /// Registry to resolve `<namespace>/<name>[@<range>]` references against.
     #[command(flatten)]
     pub registry: RegistryArgs,
@@ -511,6 +523,32 @@ impl DefaultScheme {
             DefaultScheme::Https => "https",
             DefaultScheme::Http => "http",
         }
+    }
+}
+
+/// Threshold for `ruso scan --min-confidence`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MinConfidence {
+    Tentative,
+    Firm,
+    Certain,
+}
+
+impl MinConfidence {
+    /// The runtime confidence level this threshold stands for.
+    pub fn level(self) -> Confidence {
+        match self {
+            MinConfidence::Tentative => Confidence::Tentative,
+            MinConfidence::Firm => Confidence::Firm,
+            MinConfidence::Certain => Confidence::Certain,
+        }
+    }
+
+    /// Whether a script declaring `declared` passes this threshold. A script
+    /// with no declared confidence never passes: it is not assumed to be any
+    /// level.
+    pub fn admits(self, declared: Option<Confidence>) -> bool {
+        declared.is_some_and(|c| c >= self.level())
     }
 }
 
@@ -662,5 +700,25 @@ fn normalize_base_url(target: &str) -> String {
         target.to_string()
     } else {
         format!("http://{target}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn min_confidence_admits_equal_or_higher_levels() {
+        assert!(MinConfidence::Firm.admits(Some(Confidence::Firm)));
+        assert!(MinConfidence::Firm.admits(Some(Confidence::Certain)));
+        assert!(!MinConfidence::Firm.admits(Some(Confidence::Tentative)));
+        assert!(MinConfidence::Tentative.admits(Some(Confidence::Tentative)));
+        assert!(!MinConfidence::Certain.admits(Some(Confidence::Firm)));
+    }
+
+    #[test]
+    fn min_confidence_rejects_scripts_without_a_declared_level() {
+        assert!(!MinConfidence::Tentative.admits(None));
+        assert!(!MinConfidence::Certain.admits(None));
     }
 }

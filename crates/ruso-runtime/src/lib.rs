@@ -25,8 +25,9 @@ mod runtime;
 pub mod util;
 
 pub use contract::{
-    BodyValue, CmpOp, CmpValue, EvidenceKind, ExtractSource, FieldKind, HttpMethod, InlinePart,
-    InlinePartBody, MatchPredicate, ObjectBody, QualifiedField, QualifiedMatch, Severity,
+    BodyValue, CmpOp, CmpValue, Confidence, EvidenceKind, ExtractSource, FieldKind, HttpMethod,
+    InlinePart, InlinePartBody, MatchPredicate, ObjectBody, QualifiedField, QualifiedMatch,
+    Severity,
 };
 pub use opcode::{BytecodeProgram, MAGIC, Opcode, Pc, VERSION};
 pub use runtime::duration::parse_duration;

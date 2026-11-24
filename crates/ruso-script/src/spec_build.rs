@@ -32,6 +32,8 @@ pub fn build_program_spec(statements: &[Stmt]) -> ProgramSpec {
             Stmt::Version(value) => spec.metadata.version = Some(value.clone()),
             // Single-value, last-wins (same rationale as version).
             Stmt::Family(value) => spec.metadata.family = Some(value.clone()),
+            // Single-value, last-wins (same rationale as version).
+            Stmt::Confidence(value) => spec.metadata.confidence = Some(*value),
             Stmt::Http { name, items } => {
                 spec.probes
                     .insert(name.clone(), ProbeKind::Http(http_spec(items)));

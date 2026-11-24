@@ -22,7 +22,8 @@ mod spec_build;
 
 pub use compile::{CompileError, compile};
 pub use ruso_runtime::{
-    BytecodeProgram, EvidenceKind, ExtractSource, QualifiedMatch, Severity, encode_bytecode,
+    BytecodeProgram, Confidence, EvidenceKind, ExtractSource, QualifiedMatch, Severity,
+    encode_bytecode,
 };
 pub use script::ast::{self, Program, Stmt};
 pub use script::{ParseError, parse};

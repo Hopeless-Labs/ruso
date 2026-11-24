@@ -33,6 +33,37 @@ impl Severity {
     }
 }
 
+/// How sure a check is that a positive result is a real issue — independent of
+/// [`Severity`], which says how bad the issue is *if* it is real.
+///
+/// The level describes how the check proves its claim, in ascending order of
+/// certainty. A check that declares no `confidence` leaves it unset; it is
+/// never assumed to be [`Certain`](Self::Certain).
+///
+/// Levels compare by certainty: `Tentative < Firm < Certain`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Confidence {
+    /// Inferred from an indirect sign, typically a version or banner string.
+    /// Prone to false positives (backported patches, spoofed banners).
+    Tentative,
+    /// A strong, specific indicator of the issue, without exercising it.
+    Firm,
+    /// Proven by the target's behaviour: the check triggered the issue.
+    Certain,
+}
+
+impl Confidence {
+    /// The lowercase wire name of this level (`"tentative"`, `"firm"`,
+    /// `"certain"`), as it appears in reports and in the registry's metadata.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Tentative => "tentative",
+            Self::Firm => "firm",
+            Self::Certain => "certain",
+        }
+    }
+}
+
 /// HTTP request method for an `http` probe.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpMethod {

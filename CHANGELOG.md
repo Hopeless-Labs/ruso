@@ -10,6 +10,47 @@ crate they affect.
 
 ## [Unreleased]
 
+### Added
+
+- **`confidence` metadata field** (`ruso-script`, `ruso-runtime`, `ruso-cli`).
+  A check can now declare how sure it is that a positive result is real,
+  separately from `severity`:
+
+  ```
+  metadata {
+      severity critical
+      confidence certain
+  }
+  ```
+
+  The levels are `tentative` (inferred from a version or banner), `firm` (a
+  strong, specific indicator), and `certain` (proven by the target's
+  behaviour). The field is optional and has no default: a check that omits it
+  reports no confidence. It is carried in the bytecode metadata block, exposed
+  as `Finding::confidence`, and written to the `--report` JSON (`confidence`)
+  and CSV (a `confidence` column after `severity`). Bytecode compiled before
+  this change must be recompiled.
+- **`ruso scan --min-confidence <tentative|firm|certain>`** (`ruso-cli`). Runs
+  only the scripts that declare at least that confidence. Scripts below the
+  level, and scripts that declare none, are skipped before any probe is sent;
+  a warning says how many were skipped. `ruso exec` takes the same flag.
+- **Confidence on the console** (`ruso-cli`). A finding line ends with the
+  check's confidence in dimmed parentheses when it declares one:
+  `[CRITICAL] 10.0.0.5  Redis exposed without authentication  (certain)`.
+
+### Changed
+
+- **Everything is versioned 0.0.1** while Ruso is in development. The
+  workspace version was reset from 1.0.0, and the bytecode `VERSION` is no
+  longer bumped when the wire format changes.
+
+### Fixed
+
+- **Five bundled examples** (`ruso-script`) no longer fail to parse:
+  `tcp_redis_unauth`, `dns_wire_a`, `dns_wire_txt`, `tcp_http_banner`, and
+  `udp_echo` wrote `evidence <probe> regex …`; the `evidence` line now names
+  the field (`<probe>.response`).
+
 ### Changed
 
 - **The three crates now live in one repository.** `ruso-cli`, `ruso-script`,
@@ -60,7 +101,8 @@ crate they affect.
   rustdoc comment, including opcode constants, bytecode wire-format helpers, AST
   nodes, and every error variant.
 
-## [1.0.0] - 2026-06-16
+## [0.0.1] - 2026-06-16
 
-Initial 1.0 release of `ruso-cli`, `ruso-script`, and `ruso-runtime`, published
-at the time as three separate repositories.
+Initial development version of `ruso-cli`, `ruso-script`, and `ruso-runtime`,
+published at the time as three separate repositories. It was originally
+labelled 1.0.0; the project is still in development and is versioned 0.0.1.

@@ -22,4 +22,4 @@ send wire_a
 # (Socket fields are `.response` / `.banner`; `.response_size` is HTTP-only.)
 match wire_a.response contains "ruso"
 
-evidence wire_a regex 'ruso'
+evidence wire_a.response regex 'ruso'

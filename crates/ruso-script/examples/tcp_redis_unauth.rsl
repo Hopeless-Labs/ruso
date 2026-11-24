@@ -3,6 +3,7 @@ metadata {
     description "Send Redis RESP PING on TCP/6379; unauthenticated instances reply with PONG"
     impact "Unauthenticated Redis allows data read/write, RCE via module abuse, and lateral movement"
     severity critical
+    confidence certain
     author "ruso-lab"
     cve ["CVE-2015-4335"]
     cwe ["CWE-306"]
@@ -32,4 +33,4 @@ match redis_ping.response contains "PONG"
 match redis_ping.response not_contains "NOAUTH"
 match redis_ping.response not_contains "ERR"
 
-evidence redis_ping regex 'PONG'
+evidence redis_ping.response regex 'PONG'

@@ -84,6 +84,28 @@ fn parse_severity() {
 }
 
 #[test]
+fn parse_confidence() {
+    assert_eq!(
+        parse_metadata_one("confidence tentative"),
+        Stmt::Confidence(Confidence::Tentative)
+    );
+    assert_eq!(
+        parse_metadata_one("confidence firm"),
+        Stmt::Confidence(Confidence::Firm)
+    );
+    assert_eq!(
+        parse_metadata_one("confidence CERTAIN"),
+        Stmt::Confidence(Confidence::Certain)
+    );
+}
+
+#[test]
+fn confidence_rejects_unknown_level() {
+    assert!(parse("metadata {\nconfidence 85\n}").is_err());
+    assert!(parse("metadata {\nconfidence high\n}").is_err());
+}
+
+#[test]
 fn parse_author() {
     assert_eq!(
         parse_metadata_one("author \"jaeger\""),

@@ -114,6 +114,9 @@ fn format_metadata(out: &mut String, metadata: &crate::runtime::spec::CheckMetad
     if let Some(family) = &metadata.family {
         writeln!(out, ";;   family: {family:?}").ok();
     }
+    if let Some(confidence) = &metadata.confidence {
+        writeln!(out, ";;   confidence: {}", confidence.as_str()).ok();
+    }
 }
 
 fn format_probe_kind(kind: &ProbeKind) -> String {

@@ -48,6 +48,7 @@ kw_mitigation = @{ M ~ I ~ T ~ I ~ G ~ A ~ T ~ I ~ O ~ N }
 kw_tags = @{ T ~ A ~ G ~ S }
 kw_version = @{ V ~ E ~ R ~ S ~ I ~ O ~ N }
 kw_family = @{ F ~ A ~ M ~ I ~ L ~ Y }
+kw_confidence = @{ C_ ~ O ~ N ~ F ~ I ~ D ~ E ~ N ~ C_ ~ E }
 kw_metadata = @{ M ~ E ~ T ~ A ~ D ~ A ~ T ~ A }
 kw_evidence = @{ E ~ V ~ I ~ D ~ E ~ N ~ C_ ~ E }
 
@@ -168,6 +169,12 @@ severity_lit = @{
     | ("h"|"H") ~ ("i"|"I") ~ ("g"|"G") ~ ("h"|"H")
     | ("c"|"C") ~ ("r"|"R") ~ ("i"|"I") ~ ("t"|"T") ~ ("i"|"I") ~ ("c"|"C") ~ ("a"|"A") ~ ("l"|"L")
     | ("i"|"I") ~ ("n"|"N") ~ ("f"|"F") ~ ("o"|"O")
+}
+
+confidence_lit = @{
+    T ~ E ~ N ~ T ~ A ~ T ~ I ~ V ~ E
+    | F ~ I ~ R ~ M
+    | C_ ~ E ~ R ~ T ~ A ~ I ~ N
 }
 
 path_lit = { string }
@@ -301,6 +308,7 @@ metadata_stmt = {
     | kw_tags ~ list_lit
     | kw_version ~ string
     | kw_family ~ string
+    | kw_confidence ~ confidence_lit
 }
 
 metadata_block = { kw_metadata ~ l_brace ~ (pad? ~ metadata_stmt)* ~ pad? ~ r_brace }

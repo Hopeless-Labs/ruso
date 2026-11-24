@@ -24,4 +24,4 @@ send http_banner
 match http_banner.response contains "HTTP/1."
 match http_banner.response contains "Server:"
 
-evidence http_banner regex 'Server:[^\r\n]+'
+evidence http_banner.response regex 'Server:[^\r\n]+'

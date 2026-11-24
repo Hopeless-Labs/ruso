@@ -330,6 +330,7 @@ impl Compiler {
             | Stmt::Tag(_)
             | Stmt::Version(_)
             | Stmt::Family(_)
+            | Stmt::Confidence(_)
             | Stmt::Http { .. }
             | Stmt::Dns(_)
             | Stmt::Tcp(_)

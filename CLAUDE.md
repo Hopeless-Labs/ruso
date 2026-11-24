@@ -45,10 +45,11 @@ them. Put a dependency used by a single crate in that crate's manifest.
 
 ### Workspace-wide
 
-- **Don't bump versions on every change** — accumulate notes under
+- **Don't bump versions.** Ruso is in development and everything stays at
+  `0.0.1` — the workspace version (`workspace.package`, shared by the three
+  crates) and the bytecode `VERSION` alike. Accumulate notes under
   `## [Unreleased]` in the root `CHANGELOG.md`, under the heading of the crate
-  they affect. The three crates share one version number (`workspace.package`)
-  and release together.
+  they affect.
 - **Document every public item.** New `pub` types, fields, variants, functions,
   and modules need a `///` doc comment that says what the thing *is* and, where
   it isn't obvious, why it exists. The book's `/api` section is generated from
@@ -59,9 +60,10 @@ them. Put a dependency used by a single crate in that crate's manifest.
 
 ### `ruso-runtime`
 
-- **Bytecode binary format: MAGIC `b"RUSO"`, `VERSION = 1`.** Do **not** bump
-  `VERSION` unless the wire format actually changes — it's a coordinated step
-  (the registry must redeploy and re-serve recompiled bytecode).
+- **Bytecode binary format: MAGIC `b"RUSO"`, `VERSION = 1`.** Ruso is still in
+  development, so do **not** bump `VERSION` — not even when the wire format
+  changes. Change the layout in place; bytecode compiled before the change
+  simply has to be recompiled (and the registry re-serves recompiled bytecode).
 - Prefer small, **network-free regression tests**: build a `BytecodeProgram`,
   run the `Executor`, and assert on the result (see the loop-opcode tests).
 - VM loop borrow pattern: decide an action *while* borrowing the loop frame,

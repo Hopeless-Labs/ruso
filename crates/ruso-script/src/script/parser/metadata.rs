@@ -3,7 +3,9 @@ use pest::iterators::Pair;
 use crate::script::ast::Stmt;
 use crate::script::grammar::Rule;
 use crate::script::parser::ParseError;
-use crate::script::parser::helpers::{parse_list_items, parse_severity, unquote_string};
+use crate::script::parser::helpers::{
+    parse_confidence, parse_list_items, parse_severity, unquote_string,
+};
 
 pub(crate) fn build_metadata_block(pair: Pair<Rule>) -> Result<Vec<Stmt>, ParseError> {
     pair.into_inner()
@@ -68,6 +70,11 @@ pub(crate) fn build_metadata(pair: Pair<Rule>) -> Result<Vec<Stmt>, ParseError> 
             .collect(),
         Rule::kw_version => vec![Stmt::Version(value.map(unquote_string).unwrap_or_default())],
         Rule::kw_family => vec![Stmt::Family(value.map(unquote_string).unwrap_or_default())],
+        Rule::kw_confidence => vec![Stmt::Confidence(
+            value
+                .and_then(|p| parse_confidence(p.as_str()))
+                .ok_or(ParseError::UnexpectedRule(Rule::confidence_lit))?,
+        )],
         rule => return Err(ParseError::UnexpectedRule(rule)),
     })
 }
